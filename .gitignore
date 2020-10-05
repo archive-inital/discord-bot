@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+build/
+out/
+logs/
+*.jar
+*.log
+!gradle-wrapper.jar
+credentials.properties
