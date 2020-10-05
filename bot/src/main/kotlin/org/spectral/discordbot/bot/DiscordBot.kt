@@ -3,24 +3,21 @@ package org.spectral.discordbot.bot
 import discord4j.common.util.Snowflake
 import discord4j.core.DiscordClient
 import discord4j.core.GatewayDiscordClient
-import discord4j.core.retriever.EntityRetrievalStrategy
-import discord4j.core.retriever.FallbackEntityRetriever
+import discord4j.core.event.domain.Event
+import discord4j.core.event.domain.message.MessageCreateEvent
 import discord4j.discordjson.json.ApplicationInfoData
-import discord4j.discordjson.json.MessageData
 import discord4j.discordjson.json.UserData
-import discord4j.gateway.intent.Intent
-import discord4j.gateway.intent.IntentSet
 import discord4j.rest.response.ResponseFunction
-import discord4j.store.api.mapping.MappingStoreService
-import discord4j.store.jdk.JdkStoreService
 import org.spectral.discordbot.bot.data.Config
 import org.spectral.discordbot.bot.data.credential.Credential
 import org.spectral.discordbot.bot.data.credential.CredentialManager
+import org.spectral.discordbot.bot.listener.EventListener
+import org.spectral.discordbot.bot.listener.MessageCreateListener
 import org.spectral.discordbot.bot.util.BotUtils
 import org.spectral.logger.logger
+import reactor.core.publisher.Mono
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.log
 import kotlin.system.exitProcess
 
 /**
@@ -75,6 +72,12 @@ class DiscordBot {
                      */
                     taskManager = TaskManager()
 
+                    /*
+                     * Register event listeners
+                     */
+                    logger.info("Registering event listeners")
+                    register(MessageCreateListener())
+
                     logger.info("Discord Bot is ready")
 
                     /*
@@ -86,6 +89,21 @@ class DiscordBot {
 
         logger.info("Discord Bot has disconnected. Exiting process.")
         exitProcess(0)
+    }
+
+    /**
+     * Register an event listener with the current gateway instance.
+     *
+     * @param listener EventListener<T>
+     */
+    private inline fun <reified T : Event> register(listener: EventListener<T>) {
+        gateway.eventDispatcher
+                .on(T::class.java)
+                .flatMap { event ->
+                    listener.execute(event)
+                            .thenReturn(T::class.java.simpleName)
+                            .onErrorResume { return@onErrorResume Mono.empty() }
+                }.subscribe()
     }
 
     companion object {

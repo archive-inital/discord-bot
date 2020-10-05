@@ -8,11 +8,10 @@ import discord4j.core.`object`.entity.channel.MessageChannel
 import discord4j.core.`object`.entity.channel.PrivateChannel
 import discord4j.core.spec.EmbedCreateSpec
 import discord4j.core.spec.MessageCreateSpec
-import discord4j.discordjson.json.EmojiData
 import discord4j.rest.http.client.ClientException
 import discord4j.rest.util.AllowedMentions
 import discord4j.rest.util.Permission
-import io.netty.channel.unix.Errors
+import io.netty.channel.unix.Errors.NativeIoException
 import io.netty.handler.codec.http.HttpResponseStatus
 import org.spectral.discordbot.bot.`object`.Emoji
 import org.spectral.logger.logger
@@ -22,6 +21,7 @@ import reactor.netty.http.client.PrematureCloseException
 import reactor.util.retry.Retry
 import java.time.Duration
 import java.util.function.Consumer
+
 
 /**
  * Discord related utility methods
@@ -52,8 +52,8 @@ object DiscordUtils {
      * @param channel MessageChannel
      * @return Mono<Message>
      */
-    fun sendMessage(content: String, channel: MessageChannel): Mono<Message> {
-        return sendMessage({ MessageCreateSpec().setContent(content) }, channel, false)
+    open fun sendMessage(content: String, channel: MessageChannel): Mono<Message> {
+        return sendMessage({ spec: MessageCreateSpec -> spec.setContent(content) }, channel, false)
     }
 
     /**
@@ -64,7 +64,7 @@ object DiscordUtils {
      * @return Mono<Message>
      */
     fun sendMessage(embed: Consumer<EmbedCreateSpec>, channel: MessageChannel): Mono<Message> {
-        return sendMessage({ MessageCreateSpec().setEmbed(embed) }, channel, true)
+        return sendMessage({ spec: MessageCreateSpec -> spec.setEmbed(embed) }, channel, true)
     }
 
     /**
@@ -76,10 +76,37 @@ object DiscordUtils {
      * @return Mono<Message>
      */
     fun sendMessage(content: String, embed: Consumer<EmbedCreateSpec>, channel: MessageChannel): Mono<Message> {
-        return sendMessage({ MessageCreateSpec().setContent(content).setEmbed(embed) }, channel, true)
+        return sendMessage({ spec: MessageCreateSpec -> spec.setContent(content).setEmbed(embed) }, channel, true)
     }
 
-    /**
+    fun sendMessage(spec: Consumer<MessageCreateSpec>, channel: MessageChannel, hasEmbed: Boolean): Mono<Message> {
+        return Mono.zip(
+                hasPermission(channel, channel.client.selfId, Permission.SEND_MESSAGES),
+                hasPermission(channel, channel.client.selfId, Permission.EMBED_LINKS))
+                .flatMap(TupleUtils.function { canSendMessage: Boolean, canSendEmbed: Boolean ->
+                    if (!canSendMessage) {
+                        logger.info("{Channel ID: ${channel.id.asLong()}} Missing permission: ${Permission.SEND_MESSAGES}")
+                        return@function Mono.empty<Message>()
+                    }
+                    if (!canSendEmbed && hasEmbed) {
+                        logger.info("{Channel ID: ${channel.id.asLong()}} Missing permission: ${Permission.EMBED_LINKS}")
+                        return@function sendMessage(java.lang.String.format(Emoji.ACCESS_DENIED.toString() + " I cannot send embed" +
+                                " links.%nPlease, check my permissions "
+                                + "and channel-specific ones to verify that **%s** is checked.", Permission.EMBED_LINKS), channel)
+                    }
+                    channel.createMessage(spec
+                            .andThen { messageSpec: MessageCreateSpec ->
+                                messageSpec.setAllowedMentions(AllowedMentions.builder()
+                                        .parseType(AllowedMentions.Type.ROLE, AllowedMentions.Type.USER)
+                                        .build())
+                            })
+                }) // 403 Forbidden means that the bot is not in the guild
+                .onErrorResume(ClientException.isStatusCode(HttpResponseStatus.FORBIDDEN.code()), { err: Throwable? -> Mono.empty() })
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(1))
+                        .filter { err: Throwable? -> err is PrematureCloseException || err is NativeIoException })
+    }
+
+    /*/**
      * Sends a message spec to a message channel.
      *
      * @param spec Consumer<MessageCreateSpec>
@@ -120,16 +147,7 @@ object DiscordUtils {
             /*
              * Create the message in the channel.
              */
-            return@function channel.createMessage(spec.andThen { msgSpec ->
-                msgSpec.setAllowedMentions(AllowedMentions.builder()
-                        .parseType(AllowedMentions.Type.ROLE, AllowedMentions.Type.USER)
-                        .build()
-                )
-            })
+            return@function channel.createMessage(spec)
         })
-        .onErrorResume(ClientException.isStatusCode(HttpResponseStatus.FORBIDDEN.code())) {
-            Mono.empty()
-        }
-        .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)).filter { it is PrematureCloseException || it is Errors.NativeIoException })
-    }
+    }*/
 }
