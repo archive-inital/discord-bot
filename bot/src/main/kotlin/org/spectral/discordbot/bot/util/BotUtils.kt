@@ -15,7 +15,7 @@ object BotUtils {
      * @return StatusUpdate
      */
     fun getStatus(): StatusUpdate {
-        val presence = "!help | Spectral Powered"
-        return Presence.online(Activity.streaming(presence, "https://github.com/spectral-powered/"))
+        val presence = "!help | Spectral"
+        return Presence.online(Activity.streaming(presence, "https://www.twitch.tv/monstercat"))
     }
 }

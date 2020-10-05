@@ -16,6 +16,7 @@ import discord4j.store.jdk.JdkStoreService
 import org.spectral.discordbot.bot.data.Config
 import org.spectral.discordbot.bot.data.credential.Credential
 import org.spectral.discordbot.bot.data.credential.CredentialManager
+import org.spectral.discordbot.bot.util.BotUtils
 import org.spectral.logger.logger
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
@@ -65,12 +66,14 @@ class DiscordBot {
 
         client.gateway()
                 .setAwaitConnections(false)
+                .setInitialStatus { BotUtils.getStatus() }
                 .withGateway { gateway ->
                     DiscordBot.gateway = gateway
 
                     /*
-                     * Do task stuff here
+                     * Initialize bot startup tasks.
                      */
+                    taskManager = TaskManager()
 
                     logger.info("Discord Bot is ready")
 
@@ -91,6 +94,11 @@ class DiscordBot {
          * The Discord API gateway instance.
          */
         private lateinit var gateway: GatewayDiscordClient
+
+        /**
+         * The task manager instance for this process.
+         */
+        private lateinit var taskManager: TaskManager
 
         /**
          * The Owner discord server ID running this bot process.
